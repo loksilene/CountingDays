@@ -44,8 +44,8 @@
 
   <label for="dateInput">請選擇日期</label>
   <div class="field">
-    <input type="text" id="dateInput" inputmode="numeric" autocomplete="off"
-           placeholder="例如 2026/10/15" maxlength="10">
+    <input type="text" id="dateInput" inputmode="decimal" autocomplete="off"
+           placeholder="例如 2026.10.15" maxlength="10">
     <button type="button" class="cal" id="calBtn" aria-label="開啟日曆">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -65,7 +65,7 @@
 <script>
 // ===== 設定區 =====
 const BASE_DATE = "2026-10-14";               // 基準日期
-const NAMES = ["Tina", "Ava", "Jocelyn"];         // 輪值順序
+const NAMES = ["Tina", "Ava", "容容"];         // 輪值順序
 // 備援用：抓不到政府資料的年份，才會使用這份手動假日清單
 const MANUAL_HOLIDAYS = new Set([
   "2026-10-26",
@@ -115,7 +115,7 @@ async function query() {
   const raw = $("dateInput").value.trim();
   if (!raw) { out.innerHTML = '<div class="msg err">請先輸入日期</div>'; return; }
 
-  const m = raw.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  const m = raw.match(/^(\d{4})[\/.\-](\d{1,2})[\/.\-](\d{1,2})$/);
   let target = null;
   if (m) {
     const [y, mo, d] = [+m[1], +m[2], +m[3]];
@@ -165,12 +165,27 @@ $("picker").min = BASE_DATE;
 // 輸入時自動補斜線：20261015 → 2026/10/15（刪除時不干涉，避免游標卡住）
 $("dateInput").addEventListener("input", (e) => {
   if (e.inputType && e.inputType.startsWith("delete")) return;
-  const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
-  let s = digits.slice(0, 4);
-  if (digits.length > 4) s += "/" + digits.slice(4, 6);
-  if (digits.length > 6) s += "/" + digits.slice(6, 8);
-  e.target.value = s;
+  e.target.value = formatDateInput(e.target.value);
 });
+
+// 分隔符號（. - /）一律轉成「/」；數字滿位自動換下一段，也可手動輸入分隔符號
+function formatDateInput(raw) {
+  const max = [4, 2, 2];
+  const segs = ["", "", ""];
+  let i = 0;
+  for (const ch of raw) {
+    if (/\d/.test(ch)) {
+      if (segs[i].length >= max[i]) { if (i < 2) i++; else continue; }
+      segs[i] += ch;
+    } else if (/[\/.\-。／－]/.test(ch)) {
+      if (segs[i] !== "" && i < 2) i++;
+    }
+  }
+  let s = segs[0];
+  if (i >= 1) s += "/" + segs[1];
+  if (i >= 2) s += "/" + segs[2];
+  return s;
+}
 
 // 日曆圖示：開啟原生日期選擇器，選完後填回輸入框
 $("calBtn").addEventListener("click", () => {
