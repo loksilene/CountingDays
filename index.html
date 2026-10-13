@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>輪值日期查詢</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --text:#1f2933; --sub:#6b7785; --accent:#2f6fed; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1e232b; --text:#e6e9ee; --sub:#9aa5b1; --accent:#6b9bff; --warn:#f5b461; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:var(--bg); color:var(--text);
+         font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif; }
+  .card { background:var(--card); width:min(92vw,420px); padding:28px; border-radius:16px;
+          box-shadow:0 4px 24px rgba(0,0,0,.08); }
+  h1 { margin:0 0 4px; font-size:1.4rem; }
+  .sub { color:var(--sub); font-size:.85rem; margin-bottom:20px; }
+  label { display:block; font-size:.9rem; margin-bottom:6px; }
+  input[type=date] { width:100%; padding:10px 12px; font-size:1rem; border-radius:8px;
+         border:1px solid var(--sub); background:transparent; color:var(--text); }
+  button { margin-top:14px; width:100%; padding:11px; font-size:1rem; border:0; border-radius:8px;
+           background:var(--accent); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  #result { margin-top:20px; min-height:60px; }
+  .big { font-size:1.8rem; font-weight:700; color:var(--accent); }
+  .msg { font-size:1rem; }
+  .err { color:#d64545; }
+  .note { margin-top:14px; font-size:.78rem; color:var(--warn); }
+  .src { margin-top:10px; font-size:.75rem; color:var(--sub); }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>輪值日期查詢</h1>
+  <div class="sub">基準日：<span id="baseLabel"></span>（不含基準日，從隔天起算工作日）</div>
+
+  <label for="dateInput">請選擇日期</label>
+  <input type="date" id="dateInput">
+  <button id="btn">查詢</button>
+
+  <div id="result"></div>
+  <div id="note" class="note"></div>
+  <div class="src">假日資料來源：行政院人事行政總處辦公日曆（經 ruyut/TaiwanCalendar 整理）</div>
+</div>
+
+<script>
+// ===== 設定區 =====
+const BASE_DATE = "2026-10-14";               // 基準日期
+const NAMES = ["Tina", "Ava", "容容"];         // 輪值順序
+// 備援用：抓不到政府資料的年份，才會使用這份手動假日清單
+const MANUAL_HOLIDAYS = new Set([
+  "2026-10-26",
+  "2026-12-25",
+]);
+const DATA_URL = (y) => `https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${y}.json`;
+// ==================
+
+const $ = (id) => document.getElementById(id);
+const calendarCache = {};   // year -> Map(dateKey -> isHoliday) 或 null（抓取失敗）
+
+// 以 UTC 處理日期，避免時區造成的日期偏移
+const parse = (s) => { const [y,m,d] = s.split("-").map(Number); return new Date(Date.UTC(y, m-1, d)); };
+const key = (d) => d.toISOString().slice(0, 10);
+const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
+
+async function loadYear(year) {
+  if (year in calendarCache) return calendarCache[year];
+  try {
+    const res = await fetch(DATA_URL(year));
+    if (!res.ok) throw new Error(res.status);
+    const list = await res.json();
+    const map = new Map();
+    for (const item of list) {
+      const s = item.date; // 格式 20261014
+      map.set(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`, item.isHoliday === true);
+    }
+    calendarCache[year] = map;
+  } catch (e) {
+    calendarCache[year] = null;
+  }
+  return calendarCache[year];
+}
+
+// 有政府資料就用政府資料（含補班日）；沒有就用「週末 + 手動清單」
+function isHoliday(d) {
+  const map = calendarCache[d.getUTCFullYear()];
+  const k = key(d);
+  if (map && map.has(k)) return map.get(k);
+  const wd = d.getUTCDay(); // 0 日, 6 六
+  return wd === 0 || wd === 6 || MANUAL_HOLIDAYS.has(k);
+}
+
+async function query() {
+  const out = $("result"), note = $("note");
+  note.textContent = "";
+  const v = $("dateInput").value;
+  if (!v) { out.innerHTML = '<div class="msg err">請先選擇日期</div>'; return; }
+
+  const base = parse(BASE_DATE), target = parse(v);
+  if (target < base) {
+    out.innerHTML = `<div class="msg err">請輸入 ${BASE_DATE.replaceAll("-", "/")} 以後的日期！</div>`;
+    return;
+  }
+
+  $("btn").disabled = true;
+  out.innerHTML = '<div class="msg">載入假日資料中…</div>';
+
+  // 載入涵蓋範圍內所有年份的資料
+  const failed = [];
+  for (let y = base.getUTCFullYear(); y <= target.getUTCFullYear(); y++) {
+    if (!(await loadYear(y))) failed.push(y);
+  }
+  if (failed.length) {
+    note.textContent = `⚠ ${failed.join("、")} 年尚無政府資料（或讀取失敗），該年改以「週末 + 手動假日清單」判斷，國定假日與補班日可能不準。`;
+  }
+
+  if (isHoliday(target)) {
+    out.innerHTML = '<div class="big">假日</div>';
+  } else {
+    let days = 0;
+    for (let c = addDays(base, 1); c <= target; c = addDays(c, 1)) {
+      if (!isHoliday(c)) days++;
+    }
+    out.innerHTML = `<div class="msg">累計工作日：${days} 天</div>
+                     <div class="msg">計算結果：</div>
+                     <div class="big">${NAMES[days % 3]}</div>`;
+  }
+  $("btn").disabled = false;
+}
+
+$("baseLabel").textContent = BASE_DATE.replaceAll("-", "/");
+$("dateInput").min = BASE_DATE;
+$("dateInput").value = BASE_DATE;
+$("btn").addEventListener("click", query);
+$("dateInput").addEventListener("keydown", (e) => { if (e.key === "Enter") query(); });
+</script>
+</body>
+</html>
