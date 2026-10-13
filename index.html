@@ -163,16 +163,23 @@ $("baseLabel").textContent = BASE_DATE.replaceAll("-", "/");
 $("picker").min = BASE_DATE;
 
 // 輸入時自動補斜線：20261015 → 2026/10/15（刪除時不干涉，避免游標卡住）
+function applyFormat(el) {
+  const formatted = formatDateInput(el.value);
+  if (formatted !== el.value) el.value = formatted;
+}
 $("dateInput").addEventListener("input", (e) => {
+  if (e.isComposing) return;                                   // 輸入法組字中，先不動內容
   if (e.inputType && e.inputType.startsWith("delete")) return;
-  e.target.value = formatDateInput(e.target.value);
+  applyFormat(e.target);
 });
+$("dateInput").addEventListener("compositionend", (e) => applyFormat(e.target));  // 組字結束後再格式化
 
 // 分隔符號（. - /）一律轉成「/」；數字滿位自動換下一段，也可手動輸入分隔符號
 function formatDateInput(raw) {
   const max = [4, 2, 2];
   const segs = ["", "", ""];
   let i = 0;
+  raw = raw.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   for (const ch of raw) {
     if (/\d/.test(ch)) {
       if (segs[i].length >= max[i]) { if (i < 2) i++; else continue; }
